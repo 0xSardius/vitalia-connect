@@ -2,7 +2,7 @@
 pragma solidity ^0.8.19;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /**
  * @title VitaliaConnect
@@ -73,7 +73,7 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
 
     // ======== Constructor ========
 
-    constructor() Ownable() {
+    constructor() Ownable(msg.sender) {
         // Initialize with default categories
         _addCategory("Biohacking");
         _addCategory("Longevity Research");
@@ -104,38 +104,20 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
         string calldata _expertise,
         string calldata _contactMethod
     ) external nonReentrant returns (uint256) {
-        require(bytes(_title).length > 0, "Title cannot be empty");
-        require(bytes(_description).length > 0, "Description cannot be empty");
-        require(categoryExists[_category], "Invalid category");
-
-        _listingIdCounter++;
-        uint256 newListingId = _listingIdCounter;
-
-        listings[newListingId] = Listing({
-            id: newListingId,
-            creator: msg.sender,
-            title: _title,
-            description: _description,
-            category: _category,
-            isProject: _isProject,
-            expertiseType: _expertiseType,
-            expertise: _expertise,
-            contactMethod: _contactMethod,
-            timestamp: block.timestamp,
-            active: true
-        });
-
-        userListings[msg.sender].push(newListingId);
-
-        emit ListingCreated(
+        _validateListingInputs(_title, _description, _category);
+        uint256 newListingId = _getNextListingId();
+        _createListingStorage(
             newListingId,
-            msg.sender,
             _title,
-            _isProject,
+            _description,
             _category,
-            block.timestamp
+            _isProject,
+            _expertiseType,
+            _expertise,
+            _contactMethod
         );
-
+        _updateUserListings(newListingId);
+        _emitListingCreated(newListingId, _title, _isProject, _category);
         return newListingId;
     }
 
@@ -275,5 +257,65 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
         categoryExists[_category] = true;
         
         emit CategoryAdded(_category);
+    }
+
+    function _validateListingInputs(
+        string calldata _title,
+        string calldata _description,
+        string calldata _category
+    ) internal view {
+        require(bytes(_title).length > 0, "Title cannot be empty");
+        require(bytes(_description).length > 0, "Description cannot be empty");
+        require(categoryExists[_category], "Invalid category");
+    }
+
+    function _getNextListingId() internal returns (uint256) {
+        _listingIdCounter++;
+        return _listingIdCounter;
+    }
+
+    function _createListingStorage(
+        uint256 newListingId,
+        string calldata _title,
+        string calldata _description,
+        string calldata _category,
+        bool _isProject,
+        ExpertiseType _expertiseType,
+        string calldata _expertise,
+        string calldata _contactMethod
+    ) internal {
+        listings[newListingId] = Listing({
+            id: newListingId,
+            creator: msg.sender,
+            title: _title,
+            description: _description,
+            category: _category,
+            isProject: _isProject,
+            expertiseType: _expertiseType,
+            expertise: _expertise,
+            contactMethod: _contactMethod,
+            timestamp: block.timestamp,
+            active: true
+        });
+    }
+
+    function _updateUserListings(uint256 newListingId) internal {
+        userListings[msg.sender].push(newListingId);
+    }
+
+    function _emitListingCreated(
+        uint256 newListingId,
+        string calldata _title,
+        bool _isProject,
+        string calldata _category
+    ) internal {
+        emit ListingCreated(
+            newListingId,
+            msg.sender,
+            _title,
+            _isProject,
+            _category,
+            block.timestamp
+        );
     }
 }
