@@ -5,10 +5,10 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
 /**
- * @title VitaliaCommunity
+ * @title VitaliaConnect
  * @dev A platform for connecting individuals in the Vitalia community through projects and opportunities
  */
-contract VitaliaCommunity is Ownable, ReentrancyGuard {
+contract VitaliaConnect is Ownable, ReentrancyGuard {
     // ======== State Variables ========
     
     /// @dev Categories available for listings
@@ -20,10 +20,11 @@ contract VitaliaCommunity is Ownable, ReentrancyGuard {
     /// @dev Counter for listing IDs
     uint256 private _listingIdCounter;
 
+
     // ======== Type Definitions ========
 
     /// @dev Enum to define the type of expertise being offered/sought
-    enum ExpertiseType { OFFERING, SEEKING }
+    enum ExpertiseType { SEEKING, OFFERING }
 
     /// @dev Main struct for project/opportunity listings
     struct Listing {
@@ -226,6 +227,10 @@ contract VitaliaCommunity is Ownable, ReentrancyGuard {
      */
     function getCategories() external view returns (string[] memory) {
         return categories;
+    }
+
+    function getListing(uint256 listingId) public view returns (Listing memory) {
+        return listings[listingId];
     }
 
     // ======== Admin Functions ========
