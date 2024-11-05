@@ -73,6 +73,14 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
     /// @dev Mapping from address to UserProfile struct
     mapping(address => UserProfile) public userProfiles;
 
+    // ======= Modifiers =======
+
+    modifier requiresProfile() {
+        require(userProfiles[msg.sender].lastStatusUpdate > 0, "Must create profile first");
+        require(userProfiles[msg.sender].isActive, "Profile must be active");
+    _;
+    }
+
     // ======= Constants =======
     uint256 public constant LISTING_DURATION = 15 days;
 
@@ -152,9 +160,7 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
         ExpertiseType _expertiseType,
         string calldata _expertise,
         string calldata _contactMethod
-    ) external nonReentrant returns (uint256) {
-        require(userProfiles[msg.sender].lastStatusUpdate > 0, "Must create profile first");
-    require(userProfiles[msg.sender].isActive, "Profile must be active");
+    ) external nonReentrant requiresProfile returns (uint256) {
         _validateListingInputs(_title, _description, _category);
         uint256 newListingId = _getNextListingId();
         _createListingStorage(
@@ -202,14 +208,12 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
         emit ListingUpdated(_id, _title, _category, block.timestamp);
     }
 
-    function respondToListing(uint256 _id) external nonReentrant {
+    function respondToListing(uint256 _id) external nonReentrant requiresProfile {
         require(_exists(_id), "Listing does not exist");
         require(listings[_id].active, "Listing not active");
         require(listings[_id].status == Status.Open, "Listing not open");
         require(listings[_id].creator != msg.sender, "Cannot respond to own listing");
         require(!isExpired(_id), "Listing has expired");
-        require(userProfiles[msg.sender].lastStatusUpdate > 0, "Must create profile first");
-    require(userProfiles[msg.sender].isActive, "Profile must be active");
 
         Listing storage listing = listings[_id];
         listing.status = Status.InProgress;
@@ -360,7 +364,7 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
         }
 
         return filteredListings;
-}
+    }
 
     /**
      * @dev Returns all available categories
@@ -374,6 +378,19 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
      */
     function getListing(uint256 listingId) public view returns (Listing memory) {
         return listings[listingId];
+    }
+
+    /**
+     * @dev Returns a listing with creator and responder profiles
+     */
+    function getListingWithProfile(uint256 _id) external view returns (
+        Listing memory listing,
+        UserProfile memory creatorProfile,
+        UserProfile memory responderProfile
+    ) {
+        listing = listings[_id];
+    creatorProfile = userProfiles[listing.creator];
+    responderProfile = userProfiles[listing.responder];
     }
 
     /**
