@@ -26,6 +26,14 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
     /// @dev Enum to define the type of expertise being offered/sought
     enum ExpertiseType { SEEKING, OFFERING }
 
+    /// @dev Enum to define the status of a listing
+    enum Status {
+    Open,      // Initial state when listing is created
+    InProgress,// Expert has responded and begun helping
+    Resolved,  // Creator has marked the help as complete
+        Expired    // 15 days have passed without resolution
+    }
+
     /// @dev Main struct for project/opportunity listings
     struct Listing {
         uint256 id;
@@ -39,6 +47,8 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
         string contactMethod;
         uint256 timestamp;
         bool active;
+        Status status;
+        address responder;
     }
 
     // ======== Storage ========
@@ -48,6 +58,9 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
     
     /// @dev Mapping from address to array of listing IDs
     mapping(address => uint256[]) public userListings;
+
+    // ======= Constants =======
+    uint256 public constant LISTING_DURATION = 15 days;
 
     // ======== Events ========
 
@@ -67,7 +80,15 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
         uint256 timestamp
     );
 
+    // Event for deactivating a listing
     event ListingDeactivated(uint256 indexed id, uint256 timestamp);
+
+    // Events for status tracking
+    event ListingResponded(uint256 indexed id, address indexed responder, uint256 timestamp);
+    event ListingResolved(uint256 indexed id, uint256 timestamp);
+    event ListingExpired(uint256 indexed id, uint256 timestamp);
+    
+    // Events for category management
     event CategoryAdded(string category);
     event CategoryRemoved(string category);
 
@@ -149,6 +170,29 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
         emit ListingUpdated(_id, _title, _category, block.timestamp);
     }
 
+    function respondToListing(uint256 _id) external nonReentrant {
+        require(_exists(_id), "Listing does not exist");
+        require(listings[_id].active, "Listing not active");
+        require(listings[_id].status == Status.Open, "Listing not open");
+        require(listings[_id].creator != msg.sender, "Cannot respond to own listing");
+        require(!isExpired(_id), "Listing has expired");
+
+        Listing storage listing = listings[_id];
+        listing.status = Status.InProgress;
+        listing.responder = msg.sender;
+        
+        emit ListingResponded(_id, msg.sender, block.timestamp);
+    }
+
+    function markResolved(uint256 _id) external nonReentrant {
+        require(_exists(_id), "Listing does not exist");
+        require(listings[_id].creator == msg.sender, "Not listing creator");
+        require(listings[_id].status == Status.InProgress, "Listing not in progress");
+        
+        listings[_id].status = Status.Resolved;
+        emit ListingResolved(_id, block.timestamp);
+    }
+
     /**
      * @dev Deactivates a listing
      */
@@ -181,7 +225,7 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
         uint256 currentIndex = 0;
         
         for (uint256 i = 1; i <= _listingIdCounter; i++) {
-            if (listings[i].active) {
+            if (listings[i].active && !isExpired(i) && listings[i].status == Status.Open) {
                 activeListings[currentIndex] = listings[i];
                 currentIndex++;
             }
@@ -205,14 +249,48 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
     }
 
     /**
+     * @dev Returns listings by status
+     */
+    function getListingsByStatus(Status _status) external view returns (Listing[] memory) {
+        uint256 count = 0;
+        for (uint256 i = 1; i <= _listingIdCounter; i++) {
+            if (listings[i].status == _status) {
+                count++;
+            }
+        }
+
+        Listing[] memory filteredListings = new Listing[](count);
+        uint256 currentIndex = 0;
+        
+        for (uint256 i = 1; i <= _listingIdCounter; i++) {
+            if (listings[i].status == _status) {
+                filteredListings[currentIndex] = listings[i];
+                currentIndex++;
+            }
+        }
+
+        return filteredListings;
+}
+
+    /**
      * @dev Returns all available categories
      */
     function getCategories() external view returns (string[] memory) {
         return categories;
     }
 
+    /**
+     * @dev Returns a listing by ID
+     */
     function getListing(uint256 listingId) public view returns (Listing memory) {
         return listings[listingId];
+    }
+
+    /**
+     * @dev Checks if a listing has expired
+     */
+    function isExpired(uint256 _id) public view returns (bool) {
+        return block.timestamp >= listings[_id].timestamp + LISTING_DURATION;
     }
 
     // ======== Admin Functions ========
@@ -295,7 +373,9 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
             expertise: _expertise,
             contactMethod: _contactMethod,
             timestamp: block.timestamp,
-            active: true
+            active: true,
+            status: Status.Open,
+            responder: address(0)
         });
     }
 
