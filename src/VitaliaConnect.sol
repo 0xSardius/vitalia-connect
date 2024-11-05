@@ -28,11 +28,22 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
 
     /// @dev Enum to define the status of a listing
     enum Status {
-    Open,      // Initial state when listing is created
-    InProgress,// Expert has responded and begun helping
-    Resolved,  // Creator has marked the help as complete
+        Open,       // Initial state when listing is created
+        InProgress,// Expert has responded and begun helping
+        Resolved,  // Creator has marked the help as complete
         Expired    // 15 days have passed without resolution
     }
+
+    /// @dev Struct to store user profile information
+    struct UserProfile {
+        bool isActive;           // Whether user is currently active on platform
+        string contactInfo;      // User's preferred contact method (email, telegram, etc)
+        bool onSiteStatus;       // Whether user is currently in Vitalia
+        string travelDetails;    // Current/planned travel details
+        uint256 lastStatusUpdate;// Timestamp of last profile update
+        string[] expertiseAreas; // Areas of expertise
+}
+
 
     /// @dev Main struct for project/opportunity listings
     struct Listing {
@@ -59,6 +70,9 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
     /// @dev Mapping from address to array of listing IDs
     mapping(address => uint256[]) public userListings;
 
+    /// @dev Mapping from address to UserProfile struct
+    mapping(address => UserProfile) public userProfiles;
+
     // ======= Constants =======
     uint256 public constant LISTING_DURATION = 15 days;
 
@@ -77,6 +91,20 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
         uint256 indexed id,
         string title,
         string category,
+        uint256 timestamp
+    );
+
+    // Events for user profile management
+    event ProfileCreated(
+        address indexed user,
+        bool onSiteStatus,
+        string[] expertiseAreas,
+        uint256 timestamp
+    );
+    event ProfileUpdated(
+        address indexed user,
+        bool onSiteStatus,
+        string[] expertiseAreas,
         uint256 timestamp
     );
 
@@ -125,6 +153,8 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
         string calldata _expertise,
         string calldata _contactMethod
     ) external nonReentrant returns (uint256) {
+        require(userProfiles[msg.sender].lastStatusUpdate > 0, "Must create profile first");
+    require(userProfiles[msg.sender].isActive, "Profile must be active");
         _validateListingInputs(_title, _description, _category);
         uint256 newListingId = _getNextListingId();
         _createListingStorage(
@@ -154,6 +184,8 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
         string calldata _expertise,
         string calldata _contactMethod
     ) external nonReentrant {
+        require(listings[_id].status == Status.Open, "Cannot update non-open listing");
+        require(!isExpired(_id), "Listing has expired");
         require(_exists(_id), "Listing does not exist");
         require(listings[_id].creator == msg.sender, "Not the listing creator");
         require(listings[_id].active, "Listing is not active");
@@ -176,6 +208,8 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
         require(listings[_id].status == Status.Open, "Listing not open");
         require(listings[_id].creator != msg.sender, "Cannot respond to own listing");
         require(!isExpired(_id), "Listing has expired");
+        require(userProfiles[msg.sender].lastStatusUpdate > 0, "Must create profile first");
+    require(userProfiles[msg.sender].isActive, "Profile must be active");
 
         Listing storage listing = listings[_id];
         listing.status = Status.InProgress;
@@ -202,8 +236,64 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
         require(listings[_id].active, "Listing already inactive");
 
         listings[_id].active = false;
+        listings[_id].status = Status.Expired;
         emit ListingDeactivated(_id, block.timestamp);
     }
+
+    // ======== User Profile Functions ========
+
+    function createProfile(
+        string calldata _contactInfo,
+        bool _onSiteStatus,
+        string calldata _travelDetails,
+        string[] calldata _expertiseAreas
+    ) external {
+        require(userProfiles[msg.sender].lastStatusUpdate == 0, "Profile exists");
+        require(bytes(_contactInfo).length > 0, "Contact info required");
+        
+        userProfiles[msg.sender] = UserProfile({
+        isActive: true,
+        contactInfo: _contactInfo,
+        onSiteStatus: _onSiteStatus,
+        travelDetails: _travelDetails,
+        lastStatusUpdate: block.timestamp,
+        expertiseAreas: _expertiseAreas
+    });
+
+    emit ProfileCreated(
+        msg.sender, 
+        _onSiteStatus, 
+        _expertiseAreas, 
+        block.timestamp
+        );
+    }
+
+    /**
+     * @dev Updates an existing user profile
+     */
+    function updateProfile(
+        string calldata _contactInfo,
+        bool _onSiteStatus,
+        string calldata _travelDetails,
+        string[] calldata _expertiseAreas
+    ) external {
+        require(userProfiles[msg.sender].lastStatusUpdate > 0, "Profile not found");
+    
+        UserProfile storage profile = userProfiles[msg.sender];
+        profile.contactInfo = _contactInfo;
+        profile.onSiteStatus = _onSiteStatus;
+        profile.travelDetails = _travelDetails;
+        profile.expertiseAreas = _expertiseAreas;
+        profile.lastStatusUpdate = block.timestamp;
+
+    emit ProfileUpdated(
+        msg.sender, 
+        _onSiteStatus, 
+        _expertiseAreas, 
+        block.timestamp
+        );
+    }
+
 
     // ======== View Functions ========
 
@@ -292,6 +382,25 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
     function isExpired(uint256 _id) public view returns (bool) {
         return block.timestamp >= listings[_id].timestamp + LISTING_DURATION;
     }
+
+    function getProfile(address _user) external view returns (
+        bool isActive,
+        string memory contactInfo,
+        bool onSiteStatus,
+        string memory travelDetails,
+        uint256 lastStatusUpdate,
+        string[] memory expertiseAreas
+    ) {
+        UserProfile storage profile = userProfiles[_user];
+        return (
+        profile.isActive,
+        profile.contactInfo,
+        profile.onSiteStatus,
+        profile.travelDetails,
+        profile.lastStatusUpdate,
+        profile.expertiseAreas
+    );
+}
 
     // ======== Admin Functions ========
 
