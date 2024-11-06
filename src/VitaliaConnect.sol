@@ -53,10 +53,10 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
         string[] expertiseAreas; // Areas of expertise
         string credentials; // User's credentials
         string bio; // User's bio
-        uint256 listingsCompleted; // Number of listings completed
+        uint40 listingsCompleted; // Number of listings completed
         uint256 lastActive; // Timestamp of last activity
-        uint256 totalListingsCreated; // Total listings created
-        uint256 totalResponses; // Total responses given
+        uint40 totalListingsCreated; // Total listings created
+        uint40 totalResponses; // Total responses given
 
     }
 
@@ -172,6 +172,9 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
         );
         _updateUserListings(newListingId);
         _emitListingCreated(newListingId, _title, _isProject, _category);
+
+        userProfiles[msg.sender].totalListingsCreated++;
+        userProfiles[msg.sender].lastActive = block.timestamp;
         return newListingId;
     }
 
@@ -216,6 +219,9 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
         listing.status = Status.InProgress;
         listing.responder = msg.sender;
 
+        userProfiles[msg.sender].totalResponses++;
+        userProfiles[msg.sender].lastActive = block.timestamp;
+
         emit ListingResponded(_id, msg.sender, block.timestamp);
     }
 
@@ -225,6 +231,7 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
         require(listings[_id].status == Status.InProgress, "Listing not in progress");
 
         listings[_id].status = Status.Resolved;
+        
         userProfiles[msg.sender].listingsCompleted++;
         userProfiles[listings[_id].responder].listingsCompleted++;
         emit ListingResolved(_id, block.timestamp);
