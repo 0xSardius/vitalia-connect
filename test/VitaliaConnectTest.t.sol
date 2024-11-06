@@ -285,7 +285,7 @@ contract VitaliaConnectTest is Test {
 
     function test_RevertNonOwnerAdminFunctions() public {
         vm.prank(user1);
-        vm.expectRevert("Ownable: caller is not the owner");
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", user1));
         vitaliaConnect.addCategory("New Category");
     }
 
