@@ -557,6 +557,35 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
         );
     }
 
+    function getListingsByExpertise(string calldata expertise) 
+        external 
+        view 
+        returns (Listing[] memory) 
+    {
+        uint256 count = 0;
+        for (uint256 i = 1; i <= _listingIdCounter; i++) {
+            if (keccak256(bytes(listings[i].expertise)) == keccak256(bytes(expertise)) &&
+                listings[i].active &&
+                !isExpired(i)) {
+                count++;
+            }
+        }
+
+        Listing[] memory matchingListings = new Listing[](count);
+        uint256 currentIndex = 0;
+        
+        for (uint256 i = 1; i <= _listingIdCounter; i++) {
+            if (keccak256(bytes(listings[i].expertise)) == keccak256(bytes(expertise)) &&
+                listings[i].active &&
+                !isExpired(i)) {
+                matchingListings[currentIndex] = listings[i];
+                currentIndex++;
+            }
+        }
+
+        return matchingListings;
+    }
+
 
     // ======== Admin Functions ========
 
