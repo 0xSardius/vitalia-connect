@@ -52,6 +52,12 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
         uint256 lastStatusUpdate; // Timestamp of last profile update
         string[] expertiseAreas; // Areas of expertise
         string credentials; // User's credentials
+        string bio; // User's bio
+        uint256 listingsCompleted; // Number of listings completed
+        uint256 lastActive; // Timestamp of last activity
+        uint256 totalListingsCreated; // Total listings created
+        uint256 totalResponses; // Total responses given
+
     }
 
     /// @dev Main struct for project/opportunity listings
@@ -104,11 +110,12 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
     // Events for user profile management
     event ProfileCreated(address indexed user, bool onSiteStatus, string[] expertiseAreas, uint256 timestamp);
     event ProfileUpdated(address indexed user, bool onSiteStatus, string[] expertiseAreas, uint256 timestamp);
+    event ProfileDeactivated(address indexed user, uint256 timestamp);
 
     // Event for deactivating a listing
     event ListingDeactivated(uint256 indexed id, uint256 timestamp);
 
-    // Events for status tracking
+    // Events for listing status tracking
     event ListingResponded(uint256 indexed id, address indexed responder, uint256 timestamp);
     event ListingResolved(uint256 indexed id, uint256 timestamp);
     event ListingExpired(uint256 indexed id, uint256 timestamp);
@@ -116,6 +123,14 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
     // Events for category management
     event CategoryAdded(string category);
     event CategoryRemoved(string category);
+
+    // Event for expertise updates
+    event ExpertiseUpdated(
+        address indexed user,
+        string[] oldExpertise,
+        string[] newExpertise,
+        uint256 timestamp
+    );
 
     // ======== Constructor ========
 
@@ -210,6 +225,8 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
         require(listings[_id].status == Status.InProgress, "Listing not in progress");
 
         listings[_id].status = Status.Resolved;
+        userProfiles[msg.sender].listingsCompleted++;
+        userProfiles[listings[_id].responder].listingsCompleted++;
         emit ListingResolved(_id, block.timestamp);
     }
 
@@ -232,11 +249,13 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
         string calldata _contactInfo,
         bool _onSiteStatus,
         string calldata _travelDetails,
-        string[] calldata _expertiseAreas,
-        string calldata _credentials
+        string[] memory _expertiseAreas,
+        string calldata _credentials,
+        string calldata _bio
     ) external {
         require(userProfiles[msg.sender].lastStatusUpdate == 0, "Profile exists");
         require(bytes(_contactInfo).length > 0, "Contact info required");
+        require(bytes(_bio).length <= 1000, "Bio too long");
 
         userProfiles[msg.sender] = UserProfile({
             isActive: true,
@@ -245,7 +264,12 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
             travelDetails: _travelDetails,
             lastStatusUpdate: block.timestamp,
             expertiseAreas: _expertiseAreas,
-            credentials: _credentials
+            credentials: _credentials,
+            bio: _bio,                 
+            listingsCompleted: 0,      
+            lastActive: block.timestamp,
+            totalListingsCreated: 0,   
+            totalResponses: 0          
         });
 
         allProfiles.push(msg.sender);
@@ -263,10 +287,12 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
         string calldata _contactInfo,
         bool _onSiteStatus,
         string calldata _travelDetails,
-        string[] calldata _expertiseAreas,
-        string calldata _credentials
+        string[] memory _expertiseAreas,
+        string calldata _credentials,
+        string calldata _bio
     ) external {
         require(userProfiles[msg.sender].lastStatusUpdate > 0, "Profile not found");
+        require(bytes(_bio).length <= 1000, "Bio too long");
 
         UserProfile storage profile = userProfiles[msg.sender];
         profile.contactInfo = _contactInfo;
@@ -274,13 +300,22 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
         profile.travelDetails = _travelDetails;
         profile.expertiseAreas = _expertiseAreas;
         profile.credentials = _credentials;
+        profile.bio = _bio;
         profile.lastStatusUpdate = block.timestamp;
+        profile.lastActive = block.timestamp;
 
         for (uint256 i = 0; i < _expertiseAreas.length; i++) {
             expertiseToProfiles[_expertiseAreas[i]].push(msg.sender);
         }
 
         emit ProfileUpdated(msg.sender, _onSiteStatus, _expertiseAreas, block.timestamp);
+    }
+
+
+    function deactivateProfile() external {
+        require(userProfiles[msg.sender].lastStatusUpdate > 0, "Profile not found");
+        userProfiles[msg.sender].isActive = false;
+        emit ProfileDeactivated(msg.sender, block.timestamp);
     }
 
     // ======== View Functions ========
@@ -468,19 +503,19 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
     }
 
     // Get profiles by on-site status
-function getProfilesByOnSiteStatus(bool _onSite) external view returns (
-    address[] memory filteredAddresses, 
-    UserProfile[] memory filteredProfiles
-) {
-    uint256 count = 0;
-    
-    // First pass to count matching profiles
-    for (uint256 i = 0; i < allProfiles.length; i++) {
-        if (userProfiles[allProfiles[i]].isActive && 
-            userProfiles[allProfiles[i]].onSiteStatus == _onSite) {
-            count++;
+    function getProfilesByOnSiteStatus(bool _onSite) external view returns (
+        address[] memory filteredAddresses, 
+        UserProfile[] memory filteredProfiles
+    ) {
+        uint256 count = 0;
+        
+        // First pass to count matching profiles
+        for (uint256 i = 0; i < allProfiles.length; i++) {
+            if (userProfiles[allProfiles[i]].isActive && 
+                userProfiles[allProfiles[i]].onSiteStatus == _onSite) {
+                count++;
+            }
         }
-    }
     
     // Initialize arrays with correct size
     filteredAddresses = new address[](count);
@@ -499,6 +534,21 @@ function getProfilesByOnSiteStatus(bool _onSite) external view returns (
     
     return (filteredAddresses, filteredProfiles);
 }
+
+    function getUserStats(address _user) external view returns (
+        uint256 completed,
+        uint256 created,
+        uint256 responses,
+        uint256 lastActive
+    ) {
+        UserProfile storage profile = userProfiles[_user];
+        return (
+            profile.listingsCompleted,
+            profile.totalListingsCreated,
+            profile.totalResponses,
+            profile.lastActive
+        );
+    }
 
 
     // ======== Admin Functions ========
@@ -608,7 +658,8 @@ function _removeFromExpertiseMapping(address _profile, string memory _expertise)
             // Move the last element to this position and pop
             profiles[i] = profiles[profiles.length - 1];
             profiles.pop();
-            break;
+                break;
+            }
         }
     }
 }
