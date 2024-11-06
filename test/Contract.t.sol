@@ -17,7 +17,7 @@ contract VitaliaConnectTest is Test {
 
     function testCreateListing() public {
         vm.startPrank(user1);
-        
+
         uint256 listingId = connect.createListing(
             "Test Project",
             "Description",
@@ -32,13 +32,13 @@ contract VitaliaConnectTest is Test {
         assertEq(listing.title, "Test Project");
         assertEq(listing.creator, user1);
         assertTrue(listing.active);
-        
+
         vm.stopPrank();
     }
 
     function testUpdateListing() public {
         vm.startPrank(user1);
-        
+
         uint256 listingId = connect.createListing(
             "Test Project",
             "Description",
@@ -62,7 +62,7 @@ contract VitaliaConnectTest is Test {
         VitaliaConnect.Listing memory listing = connect.getListing(listingId);
         assertEq(listing.title, "Updated Project");
         assertEq(listing.category, "Biotech");
-        
+
         vm.stopPrank();
     }
 

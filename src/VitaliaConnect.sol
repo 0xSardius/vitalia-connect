@@ -10,40 +10,49 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
  */
 contract VitaliaConnect is Ownable, ReentrancyGuard {
     // ======== State Variables ========
-    
+
     /// @dev Categories available for listings
     string[] public categories;
-    
+
+    /// @dev Array to store all profile addresses
+    address[] private allProfiles;
+
     /// @dev Tracks if a category exists
     mapping(string => bool) public categoryExists;
 
     /// @dev Counter for listing IDs
     uint256 private _listingIdCounter;
 
+    /// @dev Maps expertise to profiles
+    mapping(string => address[]) private expertiseToProfiles;
 
     // ======== Type Definitions ========
 
     /// @dev Enum to define the type of expertise being offered/sought
-    enum ExpertiseType { SEEKING, OFFERING }
+    enum ExpertiseType {
+        SEEKING,
+        OFFERING
+    }
 
     /// @dev Enum to define the status of a listing
     enum Status {
-        Open,       // Initial state when listing is created
-        InProgress,// Expert has responded and begun helping
-        Resolved,  // Creator has marked the help as complete
-        Expired    // 15 days have passed without resolution
+        Open, // Initial state when listing is created
+        InProgress, // Expert has responded and begun helping
+        Resolved, // Creator has marked the help as complete
+        Expired // 15 days have passed without resolution
+
     }
 
     /// @dev Struct to store user profile information
     struct UserProfile {
-        bool isActive;           // Whether user is currently active on platform
-        string contactInfo;      // User's preferred contact method (email, telegram, etc)
-        bool onSiteStatus;       // Whether user is currently in Vitalia
-        string travelDetails;    // Current/planned travel details
-        uint256 lastStatusUpdate;// Timestamp of last profile update
+        bool isActive; // Whether user is currently active on platform
+        string contactInfo; // User's preferred contact method (email, telegram, etc)
+        bool onSiteStatus; // Whether user is currently in Vitalia
+        string travelDetails; // Current/planned travel details
+        uint256 lastStatusUpdate; // Timestamp of last profile update
         string[] expertiseAreas; // Areas of expertise
-}
-
+        string credentials; // User's credentials
+    }
 
     /// @dev Main struct for project/opportunity listings
     struct Listing {
@@ -52,7 +61,7 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
         string title;
         string description;
         string category;
-        bool isProject;           // true = project, false = opportunity
+        bool isProject; // true = project, false = opportunity
         ExpertiseType expertiseType;
         string expertise;
         string contactMethod;
@@ -66,7 +75,7 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
 
     /// @dev Mapping from listing ID to Listing struct
     mapping(uint256 => Listing) public listings;
-    
+
     /// @dev Mapping from address to array of listing IDs
     mapping(address => uint256[]) public userListings;
 
@@ -78,7 +87,7 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
     modifier requiresProfile() {
         require(userProfiles[msg.sender].lastStatusUpdate > 0, "Must create profile first");
         require(userProfiles[msg.sender].isActive, "Profile must be active");
-    _;
+        _;
     }
 
     // ======= Constants =======
@@ -87,34 +96,14 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
     // ======== Events ========
 
     event ListingCreated(
-        uint256 indexed id,
-        address indexed creator,
-        string title,
-        bool isProject,
-        string category,
-        uint256 timestamp
+        uint256 indexed id, address indexed creator, string title, bool isProject, string category, uint256 timestamp
     );
 
-    event ListingUpdated(
-        uint256 indexed id,
-        string title,
-        string category,
-        uint256 timestamp
-    );
+    event ListingUpdated(uint256 indexed id, string title, string category, uint256 timestamp);
 
     // Events for user profile management
-    event ProfileCreated(
-        address indexed user,
-        bool onSiteStatus,
-        string[] expertiseAreas,
-        uint256 timestamp
-    );
-    event ProfileUpdated(
-        address indexed user,
-        bool onSiteStatus,
-        string[] expertiseAreas,
-        uint256 timestamp
-    );
+    event ProfileCreated(address indexed user, bool onSiteStatus, string[] expertiseAreas, uint256 timestamp);
+    event ProfileUpdated(address indexed user, bool onSiteStatus, string[] expertiseAreas, uint256 timestamp);
 
     // Event for deactivating a listing
     event ListingDeactivated(uint256 indexed id, uint256 timestamp);
@@ -123,7 +112,7 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
     event ListingResponded(uint256 indexed id, address indexed responder, uint256 timestamp);
     event ListingResolved(uint256 indexed id, uint256 timestamp);
     event ListingExpired(uint256 indexed id, uint256 timestamp);
-    
+
     // Events for category management
     event CategoryAdded(string category);
     event CategoryRemoved(string category);
@@ -164,14 +153,7 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
         _validateListingInputs(_title, _description, _category);
         uint256 newListingId = _getNextListingId();
         _createListingStorage(
-            newListingId,
-            _title,
-            _description,
-            _category,
-            _isProject,
-            _expertiseType,
-            _expertise,
-            _contactMethod
+            newListingId, _title, _description, _category, _isProject, _expertiseType, _expertise, _contactMethod
         );
         _updateUserListings(newListingId);
         _emitListingCreated(newListingId, _title, _isProject, _category);
@@ -218,7 +200,7 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
         Listing storage listing = listings[_id];
         listing.status = Status.InProgress;
         listing.responder = msg.sender;
-        
+
         emit ListingResponded(_id, msg.sender, block.timestamp);
     }
 
@@ -226,7 +208,7 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
         require(_exists(_id), "Listing does not exist");
         require(listings[_id].creator == msg.sender, "Not listing creator");
         require(listings[_id].status == Status.InProgress, "Listing not in progress");
-        
+
         listings[_id].status = Status.Resolved;
         emit ListingResolved(_id, block.timestamp);
     }
@@ -250,26 +232,28 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
         string calldata _contactInfo,
         bool _onSiteStatus,
         string calldata _travelDetails,
-        string[] calldata _expertiseAreas
+        string[] calldata _expertiseAreas,
+        string calldata _credentials
     ) external {
         require(userProfiles[msg.sender].lastStatusUpdate == 0, "Profile exists");
         require(bytes(_contactInfo).length > 0, "Contact info required");
-        
-        userProfiles[msg.sender] = UserProfile({
-        isActive: true,
-        contactInfo: _contactInfo,
-        onSiteStatus: _onSiteStatus,
-        travelDetails: _travelDetails,
-        lastStatusUpdate: block.timestamp,
-        expertiseAreas: _expertiseAreas
-    });
 
-    emit ProfileCreated(
-        msg.sender, 
-        _onSiteStatus, 
-        _expertiseAreas, 
-        block.timestamp
-        );
+        userProfiles[msg.sender] = UserProfile({
+            isActive: true,
+            contactInfo: _contactInfo,
+            onSiteStatus: _onSiteStatus,
+            travelDetails: _travelDetails,
+            lastStatusUpdate: block.timestamp,
+            expertiseAreas: _expertiseAreas,
+            credentials: _credentials
+        });
+
+        allProfiles.push(msg.sender);
+        for (uint256 i = 0; i < _expertiseAreas.length; i++) {
+            expertiseToProfiles[_expertiseAreas[i]].push(msg.sender);
+        }
+
+        emit ProfileCreated(msg.sender, _onSiteStatus, _expertiseAreas, block.timestamp);
     }
 
     /**
@@ -279,25 +263,25 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
         string calldata _contactInfo,
         bool _onSiteStatus,
         string calldata _travelDetails,
-        string[] calldata _expertiseAreas
+        string[] calldata _expertiseAreas,
+        string calldata _credentials
     ) external {
         require(userProfiles[msg.sender].lastStatusUpdate > 0, "Profile not found");
-    
+
         UserProfile storage profile = userProfiles[msg.sender];
         profile.contactInfo = _contactInfo;
         profile.onSiteStatus = _onSiteStatus;
         profile.travelDetails = _travelDetails;
         profile.expertiseAreas = _expertiseAreas;
+        profile.credentials = _credentials;
         profile.lastStatusUpdate = block.timestamp;
 
-    emit ProfileUpdated(
-        msg.sender, 
-        _onSiteStatus, 
-        _expertiseAreas, 
-        block.timestamp
-        );
-    }
+        for (uint256 i = 0; i < _expertiseAreas.length; i++) {
+            expertiseToProfiles[_expertiseAreas[i]].push(msg.sender);
+        }
 
+        emit ProfileUpdated(msg.sender, _onSiteStatus, _expertiseAreas, block.timestamp);
+    }
 
     // ======== View Functions ========
 
@@ -306,7 +290,7 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
      */
     function getActiveListings() external view returns (Listing[] memory) {
         uint256 activeCount = 0;
-        
+
         // Count active listings
         for (uint256 i = 1; i <= _listingIdCounter; i++) {
             if (listings[i].active) {
@@ -317,7 +301,7 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
         // Create array of active listings
         Listing[] memory activeListings = new Listing[](activeCount);
         uint256 currentIndex = 0;
-        
+
         for (uint256 i = 1; i <= _listingIdCounter; i++) {
             if (listings[i].active && !isExpired(i) && listings[i].status == Status.Open) {
                 activeListings[currentIndex] = listings[i];
@@ -334,11 +318,11 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
     function getUserListings(address _user) external view returns (Listing[] memory) {
         uint256[] memory userListingIds = userListings[_user];
         Listing[] memory userListingDetails = new Listing[](userListingIds.length);
-        
+
         for (uint256 i = 0; i < userListingIds.length; i++) {
             userListingDetails[i] = listings[userListingIds[i]];
         }
-        
+
         return userListingDetails;
     }
 
@@ -355,7 +339,7 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
 
         Listing[] memory filteredListings = new Listing[](count);
         uint256 currentIndex = 0;
-        
+
         for (uint256 i = 1; i <= _listingIdCounter; i++) {
             if (listings[i].status == _status) {
                 filteredListings[currentIndex] = listings[i];
@@ -383,14 +367,14 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
     /**
      * @dev Returns a listing with creator and responder profiles
      */
-    function getListingWithProfile(uint256 _id) external view returns (
-        Listing memory listing,
-        UserProfile memory creatorProfile,
-        UserProfile memory responderProfile
-    ) {
+    function getListingWithProfile(uint256 _id)
+        external
+        view
+        returns (Listing memory listing, UserProfile memory creatorProfile, UserProfile memory responderProfile)
+    {
         listing = listings[_id];
-    creatorProfile = userProfiles[listing.creator];
-    responderProfile = userProfiles[listing.responder];
+        creatorProfile = userProfiles[listing.creator];
+        responderProfile = userProfiles[listing.responder];
     }
 
     /**
@@ -400,24 +384,122 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
         return block.timestamp >= listings[_id].timestamp + LISTING_DURATION;
     }
 
-    function getProfile(address _user) external view returns (
-        bool isActive,
-        string memory contactInfo,
-        bool onSiteStatus,
-        string memory travelDetails,
-        uint256 lastStatusUpdate,
-        string[] memory expertiseAreas
-    ) {
+    function getProfile(address _user)
+        external
+        view
+        returns (
+            bool isActive,
+            string memory contactInfo,
+            bool onSiteStatus,
+            string memory travelDetails,
+            uint256 lastStatusUpdate,
+            string[] memory expertiseAreas
+        )
+    {
         UserProfile storage profile = userProfiles[_user];
         return (
-        profile.isActive,
-        profile.contactInfo,
-        profile.onSiteStatus,
-        profile.travelDetails,
-        profile.lastStatusUpdate,
-        profile.expertiseAreas
-    );
+            profile.isActive,
+            profile.contactInfo,
+            profile.onSiteStatus,
+            profile.travelDetails,
+            profile.lastStatusUpdate,
+            profile.expertiseAreas
+        );
+    }
+
+    function getProfilesByExpertise(string calldata _expertise)
+        external
+        view
+        returns (address[] memory matchingProfiles, UserProfile[] memory profiles)
+    {
+        address[] storage matches = expertiseToProfiles[_expertise];
+        matchingProfiles = new address[](matches.length);
+        profiles = new UserProfile[](matches.length);
+
+        uint256 activeCount = 0;
+
+        // First pass to count active profiles
+        for (uint256 i = 0; i < matches.length; i++) {
+            if (userProfiles[matches[i]].isActive) {
+                matchingProfiles[activeCount] = matches[i];
+                profiles[activeCount] = userProfiles[matches[i]];
+                activeCount++;
+            }
+        }
+
+        // Resize arrays to remove empty slots
+        assembly {
+            mstore(matchingProfiles, activeCount)
+            mstore(profiles, activeCount)
+        }
+
+        return (matchingProfiles, profiles);
+    }
+
+    function getAllActiveProfiles()
+        external
+        view
+        returns (address[] memory activeAddresses, UserProfile[] memory activeProfiles)
+    {
+        uint256 activeCount = 0;
+
+        // First pass to count active profiles
+        for (uint256 i = 0; i < allProfiles.length; i++) {
+            if (userProfiles[allProfiles[i]].isActive) {
+                activeCount++;
+            }
+        }
+
+        // Initialize arrays with correct size
+        activeAddresses = new address[](activeCount);
+        activeProfiles = new UserProfile[](activeCount);
+
+        // Second pass to fill arrays
+        uint256 currentIndex = 0;
+        for (uint256 i = 0; i < allProfiles.length; i++) {
+            if (userProfiles[allProfiles[i]].isActive) {
+                activeAddresses[currentIndex] = allProfiles[i];
+                activeProfiles[currentIndex] = userProfiles[allProfiles[i]];
+                currentIndex++;
+            }
+        }
+
+        return (activeAddresses, activeProfiles);
+    }
+
+    // Get profiles by on-site status
+function getProfilesByOnSiteStatus(bool _onSite) external view returns (
+    address[] memory filteredAddresses, 
+    UserProfile[] memory filteredProfiles
+) {
+    uint256 count = 0;
+    
+    // First pass to count matching profiles
+    for (uint256 i = 0; i < allProfiles.length; i++) {
+        if (userProfiles[allProfiles[i]].isActive && 
+            userProfiles[allProfiles[i]].onSiteStatus == _onSite) {
+            count++;
+        }
+    }
+    
+    // Initialize arrays with correct size
+    filteredAddresses = new address[](count);
+    filteredProfiles = new UserProfile[](count);
+    
+    // Second pass to fill arrays
+    uint256 currentIndex = 0;
+    for (uint256 i = 0; i < allProfiles.length; i++) {
+        if (userProfiles[allProfiles[i]].isActive && 
+            userProfiles[allProfiles[i]].onSiteStatus == _onSite) {
+            filteredAddresses[currentIndex] = allProfiles[i];
+            filteredProfiles[currentIndex] = userProfiles[allProfiles[i]];
+            currentIndex++;
+        }
+    }
+    
+    return (filteredAddresses, filteredProfiles);
 }
+
 
     // ======== Admin Functions ========
 
@@ -434,7 +516,7 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
     function removeCategory(string calldata _category) external onlyOwner {
         require(categoryExists[_category], "Category does not exist");
         categoryExists[_category] = false;
-        
+
         // Remove from categories array
         for (uint256 i = 0; i < categories.length; i++) {
             if (keccak256(bytes(categories[i])) == keccak256(bytes(_category))) {
@@ -443,7 +525,7 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
                 break;
             }
         }
-        
+
         emit CategoryRemoved(_category);
     }
 
@@ -456,18 +538,17 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
     function _addCategory(string memory _category) internal {
         require(!categoryExists[_category], "Category already exists");
         require(bytes(_category).length > 0, "Category cannot be empty");
-        
+
         categories.push(_category);
         categoryExists[_category] = true;
-        
+
         emit CategoryAdded(_category);
     }
 
-    function _validateListingInputs(
-        string calldata _title,
-        string calldata _description,
-        string calldata _category
-    ) internal view {
+    function _validateListingInputs(string calldata _title, string calldata _description, string calldata _category)
+        internal
+        view
+    {
         require(bytes(_title).length > 0, "Title cannot be empty");
         require(bytes(_description).length > 0, "Description cannot be empty");
         require(categoryExists[_category], "Invalid category");
@@ -515,13 +596,19 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
         bool _isProject,
         string calldata _category
     ) internal {
-        emit ListingCreated(
-            newListingId,
-            msg.sender,
-            _title,
-            _isProject,
-            _category,
-            block.timestamp
-        );
+        emit ListingCreated(newListingId, msg.sender, _title, _isProject, _category, block.timestamp);
+    }
+
+
+    // Helper function to remove address from expertise mapping
+function _removeFromExpertiseMapping(address _profile, string memory _expertise) internal {
+    address[] storage profiles = expertiseToProfiles[_expertise];
+    for (uint256 i = 0; i < profiles.length; i++) {
+        if (profiles[i] == _profile) {
+            // Move the last element to this position and pop
+            profiles[i] = profiles[profiles.length - 1];
+            profiles.pop();
+            break;
+        }
     }
 }
