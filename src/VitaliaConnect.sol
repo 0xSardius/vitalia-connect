@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /**
  * @title VitaliaConnect
  * @dev A platform for connecting individuals in the Vitalia community through projects and opportunities
  */
-contract VitaliaConnect is Ownable, ReentrancyGuard {
+contract VitaliaConnect is ReentrancyGuard {
     // ======== State Variables ========
+
+    address public owner;
 
     /// @dev Categories available for listings
     string[] public categories;
@@ -134,7 +135,8 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
 
     // ======== Constructor ========
 
-    constructor() Ownable(msg.sender) {
+    constructor() {
+        owner = msg.sender;
         // Initialize with default categories
         _addCategory("Biohacking");
         _addCategory("Longevity Research");
@@ -142,6 +144,11 @@ contract VitaliaConnect is Ownable, ReentrancyGuard {
         _addCategory("Community Building");
         _addCategory("Governance");
         _addCategory("Technology");
+    }
+
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Not the owner");
+        _;
     }
 
     // ======== External Functions ========

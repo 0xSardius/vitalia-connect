@@ -2,3 +2,10 @@ cache/
 out/
 /node_modules
 yarn.lock
+
+.env
+*.keystore
+broadcast/
+
+.vscode
+.idea/
