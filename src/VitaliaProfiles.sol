@@ -158,9 +158,9 @@ contract VitaliaProfiles {
     }
 
     function getUserStats(address _user) external view returns (
-        uint256 completed,
-        uint256 created,
-        uint256 responses,
+        uint40 completed,
+        uint40 created,
+        uint40 responses,
         uint256 lastActive
     ) {
         UserProfile storage profile = userProfiles[_user];

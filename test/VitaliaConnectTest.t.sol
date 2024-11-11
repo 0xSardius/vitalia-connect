@@ -141,10 +141,14 @@ contract VitaliaConnectTest is Test {
         assertEq(uint(listing.status), uint(VitaliaConnect.Status.Resolved));
 
         // Check that stats were updated
-        (uint40 completed, uint40 responded, uint40 cancelled, uint40 expired) = profiles.getUserStats(user1);
-        assertEq(completed, uint40(1));
+        (uint40 completed, uint40 created, uint40 responses, ) = profiles.getUserStats(user1);
+        assertEq(completed, 1);
+        
+        // Optionally check responder's stats
+        (completed, created, responses, ) = profiles.getUserStats(user2);
+        assertEq(completed, 1);
     }
-
+    
     function testListingExpiry() public {
         uint256 listingId = _createTestListing();
         
